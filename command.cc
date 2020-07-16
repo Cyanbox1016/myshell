@@ -93,21 +93,21 @@ inline string format_path(const string& path)
 
 void clear_pipe()
 {
-	fclose(fopen("/home/cyanbox/tmp/pipe_out", "w"));
+	fclose(fopen("pipe_out", "w"));
 
-	fclose(fopen("/home/cyanbox/tmp/pipe_in", "w"));
+	fclose(fopen("pipe_in", "w"));
 }
 
 inline int sync_pipe()
 {
-	fclose(fopen("/home/cyanbox/tmp/pipe_in", "w"));
+	fclose(fopen("pipe_in", "w"));
 
 	int pipe_in, pipe_out;
 	char buf[1024];
 	size_t nread;
 
-	pipe_in = open("/home/cyanbox/tmp/pipe_in", O_WRONLY|O_CREAT,S_IRUSR|S_IWUSR);
-	pipe_out = open("/home/cyanbox/tmp/pipe_out", O_RDONLY);
+	pipe_in = open("pipe_in", O_WRONLY|O_CREAT,S_IRUSR|S_IWUSR);
+	pipe_out = open("pipe_out", O_RDONLY);
 	if (pipe_in < 0 || pipe_out < 0)
 		return -1;
 	
@@ -130,7 +130,7 @@ inline int sync_pipe()
 	close(pipe_in);
 	close(pipe_out);
 
-	fclose(fopen("/home/cyanbox/tmp/pipe_out", "w"));
+	fclose(fopen("pipe_out", "w"));
 
 	return 0;
 }
@@ -167,7 +167,7 @@ void c_interpret()
 		else if (i == c_command.begin())
 		{
 			file_in = stdin;
-			file_out = fopen("/home/cyanbox/tmp/pipe_out", "w");
+			file_out = fopen("pipe_out", "w");
 			if (!file_out)
 			{
 				printf("ERROR: pipe buffer not available");
@@ -177,7 +177,7 @@ void c_interpret()
 		}
 		else if (i == c_command.end() - 1)
 		{
-			file_in = fopen("/home/cyanbox/tmp/pipe_in", "r");
+			file_in = fopen("pipe_in", "r");
 			if (!file_in)
 			{
 				printf("ERROR: pipe buffer not available");
@@ -188,13 +188,13 @@ void c_interpret()
 		}
 		else
 		{
-			file_in = fopen("/home/cyanbox/tmp/pipe_in", "r");
+			file_in = fopen("pipe_in", "r");
 			if (!file_in)
 			{
 				printf("ERROR: pipe buffer not available");
 				return;
 			}
-			file_out=fopen("/home/cyanbox/tmp/pipe_out", "w");
+			file_out=fopen("pipe_out", "w");
 			if (!file_out)
 			{
 				printf("ERROR: pipe buffer not available");
