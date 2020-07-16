@@ -140,6 +140,12 @@ void c_interpret()
 	string c_line;
 	getline(cin, c_line);
 
+	if (cin.eof())
+	{
+		printf("exit\n");
+		exit(0);
+	}
+
 	size_t pos = 0;
 	vector<string> c_command;
 	vector<string> c_word;
@@ -406,5 +412,4 @@ void c_exec(vector<string> c_word)
 	}
 	if (file_out != stdout)
 		fclose(file_out);
-	cout << "end execting" << endl;
 }
