@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <iostream>
@@ -42,6 +43,7 @@ void init_map()
 	c_map.insert(std::pair<string, Command_state>("echo", STATE_ECHO));
 	c_map.insert(std::pair<string, Command_state>("dir", STATE_DIR));
 	c_map.insert(std::pair<string, Command_state>("time", STATE_TIME));
+	c_map.insert(std::pair<string, Command_state>("exec", STATE_EXEC));
 }
 
 string trim_string (const string& str)
@@ -261,7 +263,7 @@ void c_interpret()
 
 		map<string, Command_state>::iterator c_itr = c_map.find(c_word[0]);
 		if (c_itr == c_map.end())
-			command_state = STATE_ERR_COMMAND;
+			command_state = STATE_COMMAND;
 		else
 			command_state = c_map[c_word[0]];
 		
@@ -285,9 +287,26 @@ void c_exec(vector<string> c_word)
 
 			break;
 		}
-		case STATE_ERR_COMMAND:
+		case STATE_COMMAND:
 		{
-			fprintf(file_out, "%s: command not found\n", (*c_word.begin()).c_str());
+			pid_t pid = fork();
+			if (pid == 0)
+			{
+				char* command = (char*)c_word[0].c_str();
+				char* argv[c_word.size() + 1];
+				for (int i = 0; i < c_word.size(); i++)
+				{
+					argv[i] = (char*)c_word[i].c_str();
+				}
+				argv[c_word.size()] = NULL;
+				execvp(argv[0], argv);
+				printf("%s: command not found\n", argv[0]);
+				exit(127);
+			}
+			else
+			{
+				waitpid(pid, 0, 0);
+			}
 			break;
 		}
 		case STATE_CLEARSCREEN:
@@ -370,7 +389,22 @@ void c_exec(vector<string> c_word)
 			fprintf(file_out, "%s", ctime(&raw));
 			break;
 		}
+		case STATE_EXEC:
+		{	
+			if (c_word.size() <= 1)
+				exit(0);
+			const char* command = (char*)c_word[1].c_str();
+			char* argv[c_word.size()];
+			for (int i = 1; i < c_word.size(); i++)
+			{
+				argv[i - 1] = (char*)c_word[i].c_str();
+			}
+			argv[c_word.size() - 1] = NULL;
+			execvp(argv[0], argv);
+			break;
+		}
 	}
 	if (file_out != stdout)
 		fclose(file_out);
+	cout << "end execting" << endl;
 }

@@ -13,13 +13,14 @@ extern enum Command_state
 {
 	STATE_HALT,
 	STATE_PWD,
-	STATE_ERR_COMMAND,
+	STATE_COMMAND,
 	STATE_CLEARSCREEN,
 	STATE_CD,
 	STATE_ENV,
 	STATE_ECHO,
 	STATE_DIR,
-	STATE_TIME
+	STATE_TIME,
+	STATE_EXEC
 } command_state;
 
 extern std::map<std::string, Command_state> c_map;  
