@@ -28,6 +28,7 @@ extern std::map<std::string, Command_state> c_map;
 extern FILE *file_in, *file_out;
 extern char* shell_path, *shell_dir;
 extern char* parameter[10];
+extern int f_stdin, f_stdout;
 
 void init_map();
 void c_interpret(std::string);

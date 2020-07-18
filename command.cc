@@ -180,8 +180,6 @@ void c_interpret(string c_line)
 	// string c_line;
 	// getline(cin, c_line);
 
-	dup2(f_stdin, 0);
-
 	if (cin.eof())
 	{
 		printf("exit\n");
@@ -506,6 +504,9 @@ void c_exec(vector<string> c_word)
 			break;
 		}
 	}
+	f_stdout = open(ttyname(STDOUT_FILENO), O_WRONLY);
 	dup2(f_stdout, 1);
+	f_stdin = open(ttyname(STDIN_FILENO), O_RDONLY);
+	dup2(f_stdin, 0);
 	printf("out here \n");
 }

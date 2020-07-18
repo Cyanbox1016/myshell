@@ -38,7 +38,7 @@ int main(int argc, char** argv)
 			strcat(path_buf, pos + strlen(getenv("HOME")));
 			strcpy(working_directory, path_buf);
 		} 
-
+		// dup2(f_stdin, 0);
 		if (!argv[1])
 		{
 			printf("\033[36m%s@%s\033[0m", user_name, domain_name);
