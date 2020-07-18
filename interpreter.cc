@@ -55,7 +55,7 @@ int main(int argc, char** argv)
 			if (command_file.fail())
 			{
 				printf("%s: No such file or directory\n", argv[1]);
-				continue;
+				exit(0);
 			}
 			string command_in;
 			while (!command_file.eof())
