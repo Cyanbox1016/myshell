@@ -9,6 +9,7 @@
 #include <map>
 #include <vector>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include "command.h"
@@ -30,6 +31,41 @@ FILE *file_in, *file_out;
 
 extern char** environ;
 char** envir;
+
+char* shell_path, *shell_dir;
+char* pipe_in_path, *pipe_out_path;
+
+void init_shell()
+{
+	shell_path = (char*)malloc(MAX_PATH_LEN);
+	shell_dir = (char*)malloc(MAX_PATH_LEN);
+
+	readlink("/proc/self/exe", shell_path, MAX_PATH_LEN - 1);
+	setenv("SHELL", shell_path, 1);
+
+	strcpy(shell_dir, shell_path);
+	int len = strlen(shell_dir);
+	for (int i = len - 1; i >= 0; i--)
+	{
+		if (shell_dir[i] == '/')
+		{
+			shell_dir[i] = '\0';
+			break;
+		}
+	}
+	
+	pipe_in_path = (char*)malloc(MAX_PATH_LEN);
+	pipe_out_path = (char*)malloc(MAX_PATH_LEN);
+	strcpy(pipe_in_path, shell_dir);
+	strcpy(pipe_out_path, shell_dir);
+	strcat(pipe_in_path, "pipe_in");
+	strcat(pipe_out_path, "pipe_out");
+
+	string env_path = getenv("PATH");
+	env_path += ":";
+	env_path += shell_dir;
+	setenv("PATH", env_path.c_str(), 1);
+}
 
 void init_map() 
 {
@@ -93,21 +129,21 @@ inline string format_path(const string& path)
 
 void clear_pipe()
 {
-	fclose(fopen("pipe_out", "w"));
+	fclose(fopen(pipe_out_path, "w"));
 
-	fclose(fopen("pipe_in", "w"));
+	fclose(fopen(pipe_in_path, "w"));
 }
 
 inline int sync_pipe()
 {
-	fclose(fopen("pipe_in", "w"));
+	fclose(fopen(pipe_in_path, "w"));
 
 	int pipe_in, pipe_out;
 	char buf[1024];
 	size_t nread;
 
-	pipe_in = open("pipe_in", O_WRONLY|O_CREAT,S_IRUSR|S_IWUSR);
-	pipe_out = open("pipe_out", O_RDONLY);
+	pipe_in = open(pipe_in_path, O_WRONLY|O_CREAT,S_IRUSR|S_IWUSR);
+	pipe_out = open(pipe_out_path, O_RDONLY);
 	if (pipe_in < 0 || pipe_out < 0)
 		return -1;
 	
@@ -130,19 +166,24 @@ inline int sync_pipe()
 	close(pipe_in);
 	close(pipe_out);
 
-	fclose(fopen("pipe_out", "w"));
+	fclose(fopen(pipe_out_path, "w"));
 
 	return 0;
 }
 
-void c_interpret()
+void c_interpret(string c_line)
 {
-	string c_line;
-	getline(cin, c_line);
+	// string c_line;
+	// getline(cin, c_line);
 
 	if (cin.eof())
 	{
 		printf("exit\n");
+		exit(0);
+	}
+
+	if (c_line == "")
+	{
 		exit(0);
 	}
 
@@ -173,7 +214,7 @@ void c_interpret()
 		else if (i == c_command.begin())
 		{
 			file_in = stdin;
-			file_out = fopen("pipe_out", "w");
+			file_out = fopen(pipe_out_path, "w");
 			if (!file_out)
 			{
 				printf("ERROR: pipe buffer not available");
@@ -183,7 +224,7 @@ void c_interpret()
 		}
 		else if (i == c_command.end() - 1)
 		{
-			file_in = fopen("pipe_in", "r");
+			file_in = fopen(pipe_in_path, "r");
 			if (!file_in)
 			{
 				printf("ERROR: pipe buffer not available");
@@ -194,13 +235,13 @@ void c_interpret()
 		}
 		else
 		{
-			file_in = fopen("pipe_in", "r");
+			file_in = fopen(pipe_in_path, "r");
 			if (!file_in)
 			{
 				printf("ERROR: pipe buffer not available");
 				return;
 			}
-			file_out=fopen("pipe_out", "w");
+			file_out=fopen(pipe_out_path, "w");
 			if (!file_out)
 			{
 				printf("ERROR: pipe buffer not available");
@@ -359,7 +400,7 @@ void c_exec(vector<string> c_word)
 		{
 			string path = (c_word.size() == 1) ? getcwd(NULL, 0) : format_path(c_word[1]);
 			const char* temp_path = path.c_str();
-
+			// cout << "yes" << endl;
 			DIR* p_dir = opendir(temp_path);
 			if (!p_dir) 
 			{

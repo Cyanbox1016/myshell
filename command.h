@@ -25,8 +25,10 @@ extern enum Command_state
 
 extern std::map<std::string, Command_state> c_map;  
 extern FILE *file_in, *file_out;
+extern char* shell_path, *shell_dir;
 
 void init_map();
-void c_interpret();
+void c_interpret(std::string);
 void c_exec(std::vector<std::string> c_word);
 void clear_pipe();
+void init_shell();
