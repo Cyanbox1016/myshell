@@ -20,12 +20,14 @@ extern enum Command_state
 	STATE_ECHO,
 	STATE_DIR,
 	STATE_TIME,
-	STATE_EXEC
+	STATE_EXEC,
+	STATE_UMASK
 } command_state;
 
 extern std::map<std::string, Command_state> c_map;  
 extern FILE *file_in, *file_out;
 extern char* shell_path, *shell_dir;
+extern char* parameter[10];
 
 void init_map();
 void c_interpret(std::string);

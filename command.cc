@@ -1,6 +1,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <iostream>
@@ -34,6 +35,8 @@ char** envir;
 
 char* shell_path, *shell_dir;
 char* pipe_in_path, *pipe_out_path;
+
+int f_stdin, f_stdout;
 
 void init_shell()
 {
@@ -80,6 +83,7 @@ void init_map()
 	c_map.insert(std::pair<string, Command_state>("dir", STATE_DIR));
 	c_map.insert(std::pair<string, Command_state>("time", STATE_TIME));
 	c_map.insert(std::pair<string, Command_state>("exec", STATE_EXEC));
+	c_map.insert(std::pair<string, Command_state>("umask", STATE_UMASK));
 }
 
 string trim_string (const string& str)
@@ -202,9 +206,11 @@ void c_interpret(string c_line)
 	{
 		bool in_redir = false;
 		vector<string> redir_word;
-
+ 
 		split_line(c_word, *i);
-
+		
+		file_in = stdin;
+		file_out = stdout;
 		if (c_command.size() == 1) 
 		{
 			file_in = stdin;
@@ -249,7 +255,7 @@ void c_interpret(string c_line)
 			}
 			in_redir = true;
 		}
-		
+
 		for (vector<string>::iterator j = c_word.begin(); j != c_word.end(); j++)
 		{
 			if (*j == "<")
@@ -261,27 +267,45 @@ void c_interpret(string c_line)
 					printf("%s: invalid file or directory\n", path_in);
 					return;
 				}
+				
 				in_redir = true;
+
+				f_stdin = dup(0);
+				int fin = open(path_in, O_RDONLY);
+				if (fin == -1)
+				{
+					printf("%s: No such file or directory\n", path_in);
+					return;
+				}
+				dup2(fin, 0);
+				close(fin);
+
 			}
 			if (*j == ">")
 			{
 				const char* path_out = (*(j+1)).c_str();
-				file_out = fopen(path_out, "w");
-				if (!file_out)
+				f_stdout = dup(1);
+				int fout = open(path_out, O_WRONLY|O_CREAT|O_TRUNC);
+				if (fout == -1)
 				{
-					printf("%s: invalid file or directory\n", path_out);
+					printf("%s: No such file or directory\n", path_out);
 					return;
 				}
+				dup2(fout, 1);
+				close(fout);
 			}
 			if (*j == ">>")
 			{
 				const char* path_out = (*(j+1)).c_str();
-				file_out = fopen(path_out, "a");
-				if (!file_out)
+				f_stdout = dup(1);
+				int fout = open(path_out, O_WRONLY|O_CREAT|O_APPEND);
+				if (fout == -1)
 				{
-					printf("%s: invalid file or directory\n", path_out);
+					printf("%s: No such file or directory\n", path_out);
 					return;
 				}
+				dup2(fout, 1);
+				close(fout);
 			}
 		}
 
@@ -310,14 +334,13 @@ void c_interpret(string c_line)
 
 		map<string, Command_state>::iterator c_itr = c_map.find(c_word[0]);
 		if (c_itr == c_map.end())
+		{
 			command_state = STATE_COMMAND;
+		}
 		else
 			command_state = c_map[c_word[0]];
 		
-		if (!in_redir)
-			c_exec(c_word);
-		else
-			c_exec(redir_word);
+		c_exec(c_word);
 
 		sync_pipe();
 	}
@@ -330,8 +353,8 @@ void c_exec(vector<string> c_word)
 		case STATE_PWD:
 		{
 			getcwd(working_directory, MAX_PATH_LEN);
-			fprintf(file_out, "%s\n", working_directory);
-
+			// fprintf(file_out, "%s\n", working_directory);
+			printf("%s\n", working_directory);
 			break;
 		}
 		case STATE_COMMAND:
@@ -340,7 +363,7 @@ void c_exec(vector<string> c_word)
 			if (pid == 0)
 			{
 				char* command = (char*)c_word[0].c_str();
-				char* argv[c_word.size() + 1];
+				char* argv[c_word.size() + 1] = {0};
 				for (int i = 0; i < c_word.size(); i++)
 				{
 					argv[i] = (char*)c_word[i].c_str();
@@ -380,7 +403,8 @@ void c_exec(vector<string> c_word)
 			envir = environ;
 			while (*envir)
 			{
-				fprintf(file_out, "%s\n", *envir++);
+				// fprintf(file_out, "%s\n", *envir++);
+				printf("%s\n", *envir++);
 			}
 			break;
 		}
@@ -390,10 +414,12 @@ void c_exec(vector<string> c_word)
 			for (vector<string>::iterator i = c_word.begin(); i != c_word.end(); i++)
 			{
 				if (i != c_word.begin())
-					fprintf(file_out, " ");
-				fprintf(file_out, "%s", (*i).c_str());
+					// fprintf(file_out, " ");
+					printf(" ");
+				// fprintf(file_out, "%s", (*i).c_str());
+				printf("%s", (*i).c_str());
 			}
-			fprintf(file_out, "\n");
+			printf("\n");
 			break;
 		}
 		case STATE_DIR:
@@ -433,7 +459,8 @@ void c_exec(vector<string> c_word)
 		{
 			time_t raw;
 			time(&raw);
-			fprintf(file_out, "%s", ctime(&raw));
+			// fprintf(file_out, "%s", ctime(&raw));
+			printf("%s", ctime(&raw));
 			break;
 		}
 		case STATE_EXEC:
@@ -450,7 +477,32 @@ void c_exec(vector<string> c_word)
 			execvp(argv[0], argv);
 			break;
 		}
+		case STATE_UMASK:
+		{
+			if (c_word.size() <= 1)
+			{
+				mode_t present_umask = umask(0);
+				umask(present_umask);
+				// fprintf(file_out, "%u\n", present_umask);
+				printf("%u\n", present_umask);
+			}
+			else 
+			{
+				mode_t new_umask;
+				try
+				{
+					new_umask = std::stoi(c_word[1]);
+					umask(new_umask);
+				}
+				catch(const std::invalid_argument& e)
+				{
+					cout << "umask: \'" << new_umask << "\': invalid symbolic mode operator" << endl;
+				}
+				
+			}
+			break;
+		}
 	}
-	if (file_out != stdout)
-		fclose(file_out);
+	dup2(f_stdout, 1);
+	dup2(f_stdin, 0);
 }
