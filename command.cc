@@ -36,7 +36,7 @@ char** envir;
 char* shell_path, *shell_dir;
 char* pipe_in_path, *pipe_out_path;
 
-int f_stdin, f_stdout;
+int f_stdin = -1, f_stdout = -1;
 
 void init_shell()
 {
@@ -210,54 +210,91 @@ void c_interpret(string c_line)
 		split_line(c_word, *i);
 		
 		file_in = stdin;
-		file_out = stdout;
-		if (c_command.size() == 1) 
+		if (c_command.size() != 1)
 		{
-			file_in = stdin;
-			file_out = stdout;
-			in_redir = false;
-		}
-		else if (i == c_command.begin())
-		{
-			file_in = stdin;
-			file_out = fopen(pipe_out_path, "w");
-			if (!file_out)
+			if (i == c_command.begin())
 			{
-				printf("ERROR: pipe buffer not available");
-				return;
+				// file_out = fopen(pipe_out_path, "w");
+				// if (!file_out)
+				// {
+				// 	printf("ERROR: pipe buffer not available\n");
+				// 	return;
+				// }
+
+				f_stdout = dup2(1, 8);
+				// printf("f_stdout: %d\n", f_stdout);
+				int fout = open(pipe_out_path, O_WRONLY|O_CREAT|O_TRUNC);
+				if (fout == -1)
+				{
+					printf("ERROR: pipe buffer not available\n");
+					return;
+				}
+				dup2(fout, 1);
+				close(fout);
 			}
-			in_redir = false;
-		}
-		else if (i == c_command.end() - 1)
-		{
-			file_in = fopen(pipe_in_path, "r");
-			if (!file_in)
+			else if (i == c_command.end() - 1)
 			{
-				printf("ERROR: pipe buffer not available");
-				return;
+				file_in = fopen(pipe_in_path, "r");
+				if (!file_in)
+				{
+					printf("ERROR: pipe buffer not available\n");
+					return;
+				}
+				in_redir = true;
+
+				f_stdin = dup2(0, 7);
+				int fin = open(pipe_in_path, O_RDONLY);
+				if (fin == -1)
+				{
+					printf("ERROR: pipe buffer not available\n");
+					return;
+				}
+				dup2(fin, 0);
+				close(fin);
 			}
-			file_out = stdout;
-			in_redir = true;
-		}
-		else
-		{
-			file_in = fopen(pipe_in_path, "r");
-			if (!file_in)
+			else
 			{
-				printf("ERROR: pipe buffer not available");
-				return;
+				file_in = fopen(pipe_in_path, "r");
+				if (!file_in)
+				{
+					printf("ERROR: pipe buffer not available");
+					return;
+				}
+
+				f_stdin = dup2(0, 7);
+				int fin = open(pipe_in_path, O_RDONLY);
+				if (fin == -1)
+				{
+					printf("ERROR: pipe buffer not available\n");
+					return;
+				}
+				dup2(fin, 0);
+				close(fin);
+
+				f_stdout = dup2(1, 8);
+				// printf("f_stdout: %d\n", f_stdout);
+				int fout = open(pipe_out_path, O_WRONLY|O_CREAT|O_TRUNC);
+				if (fout == -1)
+				{
+					printf("ERROR: pipe buffer not available\n");
+					return;
+				}
+				dup2(fout, 1);
+				close(fout);
+				
+				in_redir = true;
 			}
-			file_out=fopen(pipe_out_path, "w");
-			if (!file_out)
-			{
-				printf("ERROR: pipe buffer not available");
-				return;
-			}
-			in_redir = true;
 		}
 
+
+		// for (vector<string>::iterator j = c_word.begin(); j != c_word.end(); j++)
+		// {
+		// 	cout << "[" << *j << "]" << endl;
+		// }
+		// int time = 0;
 		for (vector<string>::iterator j = c_word.begin(); j != c_word.end(); j++)
 		{
+
 			if (*j == "<")
 			{
 				const char* path_in = (*(j+1)).c_str();
@@ -270,7 +307,8 @@ void c_interpret(string c_line)
 				
 				in_redir = true;
 
-				f_stdin = dup(0);
+				f_stdin = dup2(0, 7);
+				// printf("f_stdin: %d\n", f_stdin);
 				int fin = open(path_in, O_RDONLY);
 				if (fin == -1)
 				{
@@ -284,11 +322,12 @@ void c_interpret(string c_line)
 			if (*j == ">")
 			{
 				const char* path_out = (*(j+1)).c_str();
-				f_stdout = dup(1);
+				f_stdout = dup2(1, 8);
+				// printf("f_stdout: %d\n", f_stdout);
 				int fout = open(path_out, O_WRONLY|O_CREAT|O_TRUNC);
 				if (fout == -1)
 				{
-					printf("%s: No such file or directory\n", path_out);
+					printf("%s: invalid file or directory\n", path_out);
 					return;
 				}
 				dup2(fout, 1);
@@ -297,7 +336,8 @@ void c_interpret(string c_line)
 			if (*j == ">>")
 			{
 				const char* path_out = (*(j+1)).c_str();
-				f_stdout = dup(1);
+				f_stdout = dup2(1, 8);
+				// printf("f_stdout: %d\n", f_stdout);
 				int fout = open(path_out, O_WRONLY|O_CREAT|O_APPEND);
 				if (fout == -1)
 				{
@@ -324,14 +364,17 @@ void c_interpret(string c_line)
 
 		for (vector<string>::iterator j = c_word.begin(); j != c_word.end(); j++)
 		{
+			// time++;
+			// std::cerr << time << endl;
 			if (*j == "<" || *j == ">" || *j == ">>")
 			{
-				j = c_word.erase(j);
-				j = c_word.erase(j);
+				c_word.erase(j);
+				c_word.erase(j);
+				j--;
 				if (j == c_word.end()) break;
 			}
 		}
-
+		
 		map<string, Command_state>::iterator c_itr = c_map.find(c_word[0]);
 		if (c_itr == c_map.end())
 		{
@@ -348,7 +391,7 @@ void c_interpret(string c_line)
 
 void c_exec(vector<string> c_word)
 {
-	
+
 	switch (command_state)
 	{
 		case STATE_PWD:
@@ -504,9 +547,10 @@ void c_exec(vector<string> c_word)
 			break;
 		}
 	}
-	f_stdout = open(ttyname(STDOUT_FILENO), O_WRONLY);
-	dup2(f_stdout, 1);
-	f_stdin = open(ttyname(STDIN_FILENO), O_RDONLY);
-	dup2(f_stdin, 0);
-	printf("out here \n");
+	if (f_stdout != -1)
+		dup2(f_stdout, 1);
+	// f_stdin = open(ttyname(STDIN_FILENO), O_RDONLY);
+	if (f_stdin != -1)
+		dup2(f_stdin, 0);
+	// printf("out here \n");
 }
