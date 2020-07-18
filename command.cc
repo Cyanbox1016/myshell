@@ -180,6 +180,8 @@ void c_interpret(string c_line)
 	// string c_line;
 	// getline(cin, c_line);
 
+	dup2(f_stdin, 0);
+
 	if (cin.eof())
 	{
 		printf("exit\n");
@@ -348,6 +350,7 @@ void c_interpret(string c_line)
 
 void c_exec(vector<string> c_word)
 {
+	
 	switch (command_state)
 	{
 		case STATE_PWD:
@@ -504,5 +507,5 @@ void c_exec(vector<string> c_word)
 		}
 	}
 	dup2(f_stdout, 1);
-	dup2(f_stdin, 0);
+	printf("out here \n");
 }
