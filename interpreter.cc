@@ -48,6 +48,7 @@ int main(int argc, char** argv)
 			string command_in;
 			getline(cin, command_in);
 			c_interpret(command_in);
+
 		}
 		else
 		{

@@ -24,6 +24,7 @@ using std::endl;
 using std::map;
 
 bool halt = false;
+bool bg = false;
 char working_directory[MAX_PATH_LEN];
 char temp_path[MAX_PATH_LEN];
 enum Command_state command_state;
@@ -35,6 +36,10 @@ char** envir;
 
 char* shell_path, *shell_dir;
 char* pipe_in_path, *pipe_out_path;
+
+job_list *j_list;
+job* job_list::head = NULL;
+job* job_list::tail = NULL;
 
 int f_stdin = -1, f_stdout = -1;
 
@@ -68,6 +73,9 @@ void init_shell()
 	env_path += ":";
 	env_path += shell_dir;
 	setenv("PATH", env_path.c_str(), 1);
+
+	j_list = new job_list;
+	
 }
 
 void init_map() 
@@ -84,6 +92,7 @@ void init_map()
 	c_map.insert(std::pair<string, Command_state>("time", STATE_TIME));
 	c_map.insert(std::pair<string, Command_state>("exec", STATE_EXEC));
 	c_map.insert(std::pair<string, Command_state>("umask", STATE_UMASK));
+	c_map.insert(std::pair<string, Command_state>("fg", STATE_FG));
 }
 
 string trim_string (const string& str)
@@ -175,6 +184,43 @@ inline int sync_pipe()
 	return 0;
 }
 
+void job::print_job()
+{
+	printf("[%d] %d\n", jobid, pid);
+}
+
+void job_list::add_job(job* j)
+{
+	if (!head)
+	{
+		head = j;
+		tail = j;
+		j->jobid = 1;
+	}
+	else
+	{
+		j->last = tail;
+		tail = j;
+		j->last->next = j;
+		j->jobid = (j->last->jobid) + 1;
+	}
+}
+
+void back_signal(int sig)
+{
+	int null_out = open("/dev/null", O_WRONLY);
+	int null_in = open("/dev/zero", O_RDONLY);
+
+	f_stdin = dup2(0, 7);
+	f_stdout = dup2(1, 8);
+
+	dup2(null_out, 1);
+	dup2(null_in, 0);
+
+	close(null_out);
+	close(null_in);
+}
+
 void c_interpret(string c_line)
 {
 	// string c_line;
@@ -185,13 +231,13 @@ void c_interpret(string c_line)
 		printf("exit\n");
 		exit(0);
 	}
-
 	if (c_line == "")
 	{
-		exit(0);
+		return;
 	}
 
 	size_t pos = 0;
+	bg = false;
 	vector<string> c_command;
 	vector<string> c_word;
 	while ((pos = c_line.find("|")) != c_line.npos)
@@ -214,13 +260,6 @@ void c_interpret(string c_line)
 		{
 			if (i == c_command.begin())
 			{
-				// file_out = fopen(pipe_out_path, "w");
-				// if (!file_out)
-				// {
-				// 	printf("ERROR: pipe buffer not available\n");
-				// 	return;
-				// }
-
 				f_stdout = dup2(1, 8);
 				// printf("f_stdout: %d\n", f_stdout);
 				int fout = open(pipe_out_path, O_WRONLY|O_CREAT|O_TRUNC);
@@ -281,17 +320,11 @@ void c_interpret(string c_line)
 				}
 				dup2(fout, 1);
 				close(fout);
-				
+
 				in_redir = true;
 			}
 		}
 
-
-		// for (vector<string>::iterator j = c_word.begin(); j != c_word.end(); j++)
-		// {
-		// 	cout << "[" << *j << "]" << endl;
-		// }
-		// int time = 0;
 		for (vector<string>::iterator j = c_word.begin(); j != c_word.end(); j++)
 		{
 
@@ -347,6 +380,12 @@ void c_interpret(string c_line)
 				dup2(fout, 1);
 				close(fout);
 			}
+			if (*j == "&")
+			{
+				bg = true;
+				c_word.erase(j);
+				j--;
+			}
 		}
 
 		if (in_redir)
@@ -382,16 +421,46 @@ void c_interpret(string c_line)
 		}
 		else
 			command_state = c_map[c_word[0]];
-		
-		c_exec(c_word);
+
+		// add bg
+		if (!bg)
+		{
+			c_exec(c_word);
+		}
+		else
+		{
+			pid_t pid = fork();
+			if (pid == 0)
+			{
+				setpgid(0, 0);
+				c_exec(c_word);
+			}
+			else
+			{
+				setpgid(pid, pid);
+				job* j = new job;
+				j->pid = pid;
+				j->pgid = getpgid(pid);
+				j->argv = (char**)malloc(c_word.size());
+				for (int k = 0; k < c_word.size(); k++)
+				{
+					j->argv[k] = (char*)c_word[k].c_str();
+				}
+				j_list->add_job(j);
+				j->print_job();
+
+				waitpid(pid, 0, WNOHANG);
+			}
+		}
+		// add bg
 
 		sync_pipe();
+		// j_list->job_check();
 	}
 }
 
 void c_exec(vector<string> c_word)
 {
-
 	switch (command_state)
 	{
 		case STATE_PWD:
@@ -403,24 +472,36 @@ void c_exec(vector<string> c_word)
 		}
 		case STATE_COMMAND:
 		{
-			pid_t pid = fork();
-			if (pid == 0)
+			char* command = (char*)c_word[0].c_str();
+			char* argv[c_word.size() + 1] = {0};
+			for (int i = 0; i < c_word.size(); i++)
 			{
-				char* command = (char*)c_word[0].c_str();
-				char* argv[c_word.size() + 1] = {0};
-				for (int i = 0; i < c_word.size(); i++)
+				argv[i] = (char*)c_word[i].c_str();
+			}
+			argv[c_word.size()] = NULL;
+
+			if (!bg)
+			{
+				pid_t pid = fork();
+				
+				if (pid == 0)
 				{
-					argv[i] = (char*)c_word[i].c_str();
+					execvp(argv[0], argv);
+					printf("%s: command not found\n", argv[0]);
+					exit(127);	
 				}
-				argv[c_word.size()] = NULL;
+				else
+				{
+					waitpid(pid, 0, 0);
+				}
+			}
+			else
+			{
 				execvp(argv[0], argv);
 				printf("%s: command not found\n", argv[0]);
 				exit(127);
 			}
-			else
-			{
-				waitpid(pid, 0, 0);
-			}
+			
 			break;
 		}
 		case STATE_CLEARSCREEN:
@@ -486,9 +567,9 @@ void c_exec(vector<string> c_word)
 					{
 						printf("%-15s", dir_item->d_name);
 					}
-					else if (strlen(dir_item->d_name) < 25)
+					else if (strlen(dir_item->d_name) < 30)
 					{
-						printf("%-25s", dir_item->d_name);
+						printf("%-30s", dir_item->d_name);
 					}
 					else {
 						printf("%s\n", dir_item->d_name);
@@ -546,6 +627,25 @@ void c_exec(vector<string> c_word)
 			}
 			break;
 		}
+		case STATE_FG:
+		{
+			job* j;
+			if (j_list->head)
+			{
+				printf("enter here\n");
+				pid_t pgid= j_list->head->pgid;
+				pid_t shell_pid = getpid();
+				signal(SIGTTOU, SIG_IGN);
+				kill(j_list->head->pid, SIGCONT);
+				tcsetpgrp(STDIN_FILENO, pgid);
+				printf("before wait\n");
+				waitpid(-pgid, NULL, 0);
+				
+				tcsetpgrp(STDIN_FILENO, shell_pid);
+				signal(SIGTTOU, SIG_DFL);
+			}
+			break;
+		}
 	}
 	if (f_stdout != -1)
 		dup2(f_stdout, 1);
@@ -553,4 +653,38 @@ void c_exec(vector<string> c_word)
 	if (f_stdin != -1)
 		dup2(f_stdin, 0);
 	// printf("out here \n");
+	signal(SIGTTOU, SIG_DFL);
+}
+
+
+void job_list::del_job(job* j)
+{
+	if (head == j)
+		head = j->next;
+	if (tail == j)
+		tail = j->last;
+	if (j->last)
+		j->last->next = j->next;
+	if (j->next)
+		j->next->last = j->last;
+
+	delete j;
+}
+
+int job_list::job_check()
+{
+	job* j = head;
+	while (j)
+	{
+		int exit_status = waitpid(j->pid, &(j->status), WNOHANG | WUNTRACED);
+		int stop_status =  WIFSTOPPED(j->status);
+		// printf("exit_status: %d\n", exit_status);
+		// printf("stopped: %d\n", stop_status);
+		if (exit_status > 0 && stop_status == 0)
+		{
+			j->print_job();
+			del_job(j);
+		}
+		j = j->next;
+	}
 }
