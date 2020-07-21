@@ -16,10 +16,17 @@ public:
 	pid_t pgid;
 	// pid_t sid;
 	pid_t jobid;
+	int argc;
 	char** argv;
 
 	int status;
-	std::string state;
+	enum state_id
+	{
+		JOB_RUNNING,
+		JOB_STOPPED,
+		JOB_TERMINATED,
+		JOB_DONE
+	} state;
 	job* last;
 	job* next;
 
@@ -28,6 +35,7 @@ public:
 		pid = -1;
 		pgid = -1;
 		jobid = -1;
+		argc = 0;
 		// sid = -1;
 		last = NULL;
 		next = NULL;
@@ -36,6 +44,7 @@ public:
 	~job() {}
 
 	void print_job();
+	void print_full_job();
 };
 
 class job_list
@@ -50,6 +59,7 @@ public:
 	void del_job(job*);
 
 	int job_check();
+	int jobs();
 };
 
 extern bool halt;
@@ -68,13 +78,15 @@ extern enum Command_state
 	STATE_TIME,
 	STATE_EXEC,
 	STATE_UMASK,
-	STATE_FG
+	STATE_FG,
+	STATE_JOBS,
+	STATE_SHIFT
 } command_state;
 
 extern std::map<std::string, Command_state> c_map;  
 extern FILE *file_in, *file_out;
 extern char* shell_path, *shell_dir;
-extern char* parameter[10];
+extern const char* parameter[10];
 extern int f_stdin, f_stdout;
 extern job_list *j_list;
 

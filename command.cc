@@ -93,6 +93,8 @@ void init_map()
 	c_map.insert(std::pair<string, Command_state>("exec", STATE_EXEC));
 	c_map.insert(std::pair<string, Command_state>("umask", STATE_UMASK));
 	c_map.insert(std::pair<string, Command_state>("fg", STATE_FG));
+	c_map.insert(std::pair<string, Command_state>("jobs", STATE_JOBS));
+	c_map.insert(std::pair<string, Command_state>("shift", STATE_SHIFT));
 }
 
 string trim_string (const string& str)
@@ -123,6 +125,34 @@ inline void split_line(vector<string>& words, string line)
 		line = trim_string(line);
 	}
 	words.push_back(line);
+}
+
+void var_translate(vector<string>& words)
+{
+	for (vector<string>::iterator i = words.begin(); i != words.end(); i++)
+	{
+		if ((*i).find("$") == 0)
+		{
+			try
+			{
+				int num = std::stoi((*i).substr(1, (*i).length() - 1));
+				if (num < 0 || num > 9)
+					continue;
+				if (parameter[num] == NULL)
+					*i = "";
+				else
+				{
+					*i = parameter[num];
+				}
+					
+			}
+			catch(const std::invalid_argument& e)
+			{
+				continue;
+			}
+			
+		}
+	}
 }
 
 inline string format_path(const string& path)
@@ -233,11 +263,11 @@ void c_interpret(string c_line)
 	}
 	if (c_line == "")
 	{
+		j_list->job_check();
 		return;
 	}
 
 	size_t pos = 0;
-	bg = false;
 	vector<string> c_command;
 	vector<string> c_word;
 	while ((pos = c_line.find("|")) != c_line.npos)
@@ -251,9 +281,11 @@ void c_interpret(string c_line)
 	for (vector<string>::iterator i = c_command.begin(); i != c_command.end(); i++)
 	{
 		bool in_redir = false;
+		bg = false;
 		vector<string> redir_word;
  
 		split_line(c_word, *i);
+		var_translate(c_word);
 		
 		file_in = stdin;
 		if (c_command.size() != 1)
@@ -441,11 +473,13 @@ void c_interpret(string c_line)
 				job* j = new job;
 				j->pid = pid;
 				j->pgid = getpgid(pid);
-				j->argv = (char**)malloc(c_word.size());
+				j->argv = (char**)malloc(c_word.size() + 1);
+				j->argc = c_word.size();
 				for (int k = 0; k < c_word.size(); k++)
 				{
 					j->argv[k] = (char*)c_word[k].c_str();
 				}
+				j->argv[c_word.size()] = NULL;
 				j_list->add_job(j);
 				j->print_job();
 
@@ -455,7 +489,7 @@ void c_interpret(string c_line)
 		// add bg
 
 		sync_pipe();
-		// j_list->job_check();
+		j_list->job_check();
 	}
 }
 
@@ -599,7 +633,10 @@ void c_exec(vector<string> c_word)
 				argv[i - 1] = (char*)c_word[i].c_str();
 			}
 			argv[c_word.size() - 1] = NULL;
-			execvp(argv[0], argv);
+			if (!execvp(argv[0], argv))
+			{
+				printf("%s: command not found\n", argv[0]);
+			}
 			break;
 		}
 		case STATE_UMASK:
@@ -630,19 +667,106 @@ void c_exec(vector<string> c_word)
 		case STATE_FG:
 		{
 			job* j;
-			if (j_list->head)
+			if (c_word.size() == 1)
 			{
-				printf("enter here\n");
-				pid_t pgid= j_list->head->pgid;
-				pid_t shell_pid = getpid();
-				signal(SIGTTOU, SIG_IGN);
-				kill(j_list->head->pid, SIGCONT);
-				tcsetpgrp(STDIN_FILENO, pgid);
-				printf("before wait\n");
-				waitpid(-pgid, NULL, 0);
+				j = j_list->head;
+				if (!j)
+				{
+					printf("fg: current: no such job\n");
+					return;
+				}
+			}
+			else 
+			{
+				if (c_word[1].substr(0, 1) == "%")
+				{
+					c_word[1].erase(0, 1);
+				}
 				
-				tcsetpgrp(STDIN_FILENO, shell_pid);
-				signal(SIGTTOU, SIG_DFL);
+				string jobid_str = c_word[1];
+				try
+				{
+					int jobid = std::stoi(jobid_str);
+					job* k;
+					for (k = j_list->head; k; k = k->next)
+					{
+						if (k->jobid == jobid)
+						{
+							j = k;
+							break;
+						}
+					}
+					if (!k)
+					{
+						printf("fg: %d: no such job\n", jobid);
+						return;
+					}
+				}
+				catch(const std::invalid_argument& e)
+				{
+					if (jobid_str == "+")
+						j = j_list->head;
+					else if (jobid_str == "-")
+						j = j_list->head->next;
+					else 
+					{
+						for (job* k = j_list->head; k; k = k->next)
+						{
+							if (k->argv[0] == jobid_str)
+							{
+								j = k;
+								break;
+							}
+						}
+					}
+				}
+					
+			}
+			if (!j)
+			{
+				printf("fg: No such job\n");
+				return;
+			}
+	
+			pid_t pgid= j->pgid;
+			pid_t shell_pid = getpid();
+			signal(SIGTTOU, SIG_IGN);
+			if (kill(j->pid, SIGCONT))
+			{
+				printf("fg: job terminated\n");
+				return;
+			}
+			tcsetpgrp(STDIN_FILENO, pgid);
+			waitpid(-pgid, NULL, 0);
+			
+			tcsetpgrp(STDIN_FILENO, shell_pid);
+			signal(SIGTTOU, SIG_DFL);
+
+			break;
+		}
+		case STATE_JOBS:
+		{
+			j_list->jobs();
+			break;
+		}
+		case STATE_SHIFT:
+		{
+			int shift_bit;
+			if (c_word.size() == 1)
+			{
+				shift_bit = 1;
+			} 
+			else
+			{
+				shift_bit = stoi(c_word[1]);
+			}
+			for (int i = 1; i < 9 - shift_bit; i++)
+			{
+				parameter[i] = parameter[i + shift_bit];
+			}
+			for (int i = 10 - shift_bit ; i < 10; i++)
+			{
+				parameter[i] = NULL;
 			}
 			break;
 		}
@@ -653,7 +777,7 @@ void c_exec(vector<string> c_word)
 	if (f_stdin != -1)
 		dup2(f_stdin, 0);
 	// printf("out here \n");
-	signal(SIGTTOU, SIG_DFL);
+	// signal(SIGTTOU, SIG_DFL);
 }
 
 
@@ -667,7 +791,14 @@ void job_list::del_job(job* j)
 		j->last->next = j->next;
 	if (j->next)
 		j->next->last = j->last;
-
+	
+	job* ptr = j->next;
+	while (ptr)
+	{
+		ptr->jobid--;
+		ptr = ptr->next;
+	}
+		
 	delete j;
 }
 
@@ -678,13 +809,108 @@ int job_list::job_check()
 	{
 		int exit_status = waitpid(j->pid, &(j->status), WNOHANG | WUNTRACED);
 		int stop_status =  WIFSTOPPED(j->status);
-		// printf("exit_status: %d\n", exit_status);
-		// printf("stopped: %d\n", stop_status);
-		if (exit_status > 0 && stop_status == 0)
+		int term_status = WIFSIGNALED(j->status);
+		if (exit_status == -1 || (exit_status > 0 && stop_status == 0))
 		{
-			j->print_job();
+			j->state = job::JOB_DONE;
+		}
+		else if (exit_status > 0 && term_status)
+		{
+			j->state = job::JOB_TERMINATED;
+		}
+		else if (exit_status > 0 && stop_status)
+		{
+			j->state = job::JOB_STOPPED;
+		}
+		else
+		{
+			j->state = job::JOB_RUNNING;
+		}
+		if (j->state == job::JOB_DONE || j->state == job::JOB_TERMINATED)
+		{
+			j->print_full_job();
+		}
+		job* next = j->next;
+		
+		j = next;
+	}
+	j = head;
+	while (j)
+	{
+		if (j->state == job::JOB_DONE || j->state == job::JOB_TERMINATED)
+		{
 			del_job(j);
 		}
-		j = j->next;
+		job* next = j->next;
+		j = next;
+	}	
+}
+
+int job_list::jobs()
+{
+	job* j = head;
+	while (j)
+	{
+		int exit_status = waitpid(j->pid, &(j->status), WNOHANG | WUNTRACED);
+		int stop_status =  WIFSTOPPED(j->status);
+		int term_status = WIFSIGNALED(j->status);
+		if (exit_status == -1 || (exit_status > 0 && stop_status == 0))
+		{
+			j->state = job::JOB_DONE;
+		}
+		else if (exit_status > 0 && term_status)
+		{
+			j->state = job::JOB_TERMINATED;
+		}
+		else if (exit_status > 0 && stop_status)
+		{
+			j->state = job::JOB_STOPPED;
+		}
+		else
+		{
+			j->state = job::JOB_RUNNING;
+		}
+		j->print_full_job();
+		job* next = j->next;
+		
+		j = next;
 	}
+	j = head;
+	while (j)
+	{
+		if (j->state == job::JOB_DONE || j->state == job::JOB_TERMINATED)
+		{
+			del_job(j);
+		}
+		job* next = j->next;
+		j = next;
+	}	
+}
+
+void job::print_full_job()
+{
+	printf("[%d] %d", jobid, pid);
+	if (jobid == 1) printf("+");
+	else if (jobid == 2) printf("-");
+	printf("\t");
+	switch(state)
+	{
+		case JOB_RUNNING:
+			printf("Running\t\t");
+			break;
+		case JOB_STOPPED:
+			printf("Stopped\t\t");
+			break;
+		case JOB_TERMINATED:
+			printf("Terminated\t");
+			break;
+		case JOB_DONE:
+			printf("Done\t");
+			break;
+	}
+	for (int i = 0; i < argc; i++)
+	{
+		printf("%s ", argv[i]);
+	}
+	printf("\n");
 }

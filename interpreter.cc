@@ -16,6 +16,7 @@ using std::ifstream;
 
 char user_name[MAX_USR_LEN];
 char domain_name[MAX_USR_LEN];
+const char* parameter[10];
 
 int main(int argc, char** argv)
 {	
@@ -45,6 +46,11 @@ int main(int argc, char** argv)
 			printf(":");
 			printf("\033[35m%s\033[0m", working_directory);
 			printf("$ ");
+			parameter[0] = "myshell";
+			for (int i = 1; i < 10; i++)
+			{
+				parameter[i] = NULL;
+			}
 			string command_in;
 			getline(cin, command_in);
 			c_interpret(command_in);
@@ -57,6 +63,17 @@ int main(int argc, char** argv)
 			{
 				printf("%s: No such file or directory\n", argv[1]);
 				exit(0);
+			}
+			for (int i = 0; i < 10; i++)
+			{
+				if (i + 1 < argc)
+				{
+					parameter[i] = argv[i + 1];
+				}
+				else
+				{
+					parameter[i] = NULL;
+				}
 			}
 			string command_in;
 			while (!command_file.eof())
