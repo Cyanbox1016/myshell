@@ -823,7 +823,12 @@ void c_interpret(string c_line)
 			// 建立子进程，并令子进程独立出一个进程组，与myshell脱钩
 			pid_t pid = fork();
 			if (pid == 0)
-			{
+			{	
+				// 添加环境变量parent
+				string parent_env = "parent=";
+				parent_env += shell_path;
+				putenv((char*)parent_env.c_str());
+
 				setpgid(0, 0);
 				c_exec(c_word);
 			}
@@ -931,6 +936,11 @@ void c_exec(vector<string> c_word)
 				
 				if (pid == 0)
 				{
+					// 添加环境变量parent
+					string parent_env = "parent=";
+					parent_env += shell_path;
+					putenv((char*)parent_env.c_str());
+
 					execvp(argv[0], argv);
 					printf("%s: command not found\n", argv[0]);
 					exit(127);	
